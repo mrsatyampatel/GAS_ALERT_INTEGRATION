@@ -23,6 +23,7 @@ const char* deviceSecret = "esp32_super_secret_key_123";
 
 // Timers
 unsigned long lastAlertTime = 0;
+bool firstAlertSent = false; // Boot hone ke turant baad pehla alert bina 30s wait kiye bhejne ke liye
 const unsigned long ALERT_INTERVAL = 30000; // Emergency alert har 30s me ek baar dispatch hoga
 
 unsigned long lastTelemetryTime = 0;
@@ -77,11 +78,15 @@ void loop() {
   if (gasValue > threshold) {
     tone(BUZZER_PIN, 2500);  // 🔊 Hardware Buzzer ON
 
-    // Emergency SMS / WhatsApp / Pushover Dispatch (Cooldown: 30s)
-    if (millis() - lastAlertTime > ALERT_INTERVAL) {
+    // Pehla alert turant bheje (boot ke 30s ke andar bhi!), uske baad 30s cooldown
+    if (!firstAlertSent || (millis() - lastAlertTime > ALERT_INTERVAL)) {
       Serial.println("🚨 [EMERGENCY] Leak Detected! Dispatching to Render Cloud...");
-      sendEmergencyAlert(gasValue);
-      lastAlertTime = millis();
+      if (sendEmergencyAlert(gasValue)) {
+        firstAlertSent = true;
+        lastAlertTime = millis();
+      } else {
+        Serial.println("⚠️ Alert send failed, will retry!");
+      }
     }
   } 
   else {
@@ -100,13 +105,17 @@ void loop() {
 // -------------------------------------------------------------
 // Function 1: Emergency Alert Dispatch (SMS + WhatsApp + Pushover)
 // -------------------------------------------------------------
-void sendEmergencyAlert(int gasLevel) {
-  if (WiFi.status() != WL_CONNECTED) return;
+bool sendEmergencyAlert(int gasLevel) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️ Cannot send alert: WiFi disconnected!");
+    return false;
+  }
 
   WiFiClientSecure client;
   client.setInsecure(); // Render HTTPS SSL connection bina kisi error ke allow kare
 
   HTTPClient http;
+  http.setTimeout(10000); // 10s timeout for cloud HTTPS
   http.begin(client, emergencyUrl);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-secret", deviceSecret);
@@ -122,7 +131,14 @@ void sendEmergencyAlert(int gasLevel) {
   int code = http.POST(payload);
   Serial.print("🚨 Cloud Emergency Alert Sent -> Response Code: ");
   Serial.println(code);
+  if (code > 0) {
+    Serial.println(http.getString());
+  } else {
+    Serial.print("❌ HTTP Error: ");
+    Serial.println(http.errorToString(code));
+  }
   http.end();
+  return (code >= 200 && code < 300);
 }
 
 // -------------------------------------------------------------
