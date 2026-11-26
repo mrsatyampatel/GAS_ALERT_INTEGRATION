@@ -472,12 +472,13 @@
 
       // Clamp value
       const clampedVal = Math.max(0, Math.min(value, max));
-      const needleAngle = startAngle + (clampedVal / max) * Math.PI;
+      // Needle points straight UP at rotation 0, so map [0..max] to [-PI/2 .. +PI/2]
+      const needleRotation = (clampedVal / max - 0.5) * Math.PI;
 
       // Draw Needle
       ctx.save();
       ctx.translate(centerX, centerY);
-      ctx.rotate(needleAngle - Math.PI / 2);
+      ctx.rotate(needleRotation);
 
       ctx.beginPath();
       ctx.moveTo(-5, 0);
